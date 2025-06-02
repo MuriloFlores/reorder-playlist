@@ -14,6 +14,7 @@ type playlistUseCase struct {
 type PlaylistUseCase interface {
 	GetMinePlaylists(ctx context.Context) ([]domain.Playlist, error)
 	ReorderPlaylist(ctx context.Context, playlistID, criteria, title string) error
+	GetPlaylistByURL(ctx context.Context, url string) (domain.Playlist, error)
 }
 
 func NewPlaylistUseCase(service ports.YoutubePort, logger ports.LoggerPort) PlaylistUseCase {
