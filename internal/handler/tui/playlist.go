@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"TUI_playlist_reorder/internal/core/domain"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,30 +18,34 @@ type PlaylistsModel struct {
 	cursor    int
 	err       error
 	loading   bool
+
+	lastRefresh   time.Time
+	statusMessage string
 }
 
 func NewPlaylistsModel(parent *AppModel) *PlaylistsModel {
 	return &PlaylistsModel{
-		parent:  parent,
-		loading: true,
+		parent:        parent,
+		loading:       true,
+		lastRefresh:   time.Time{},
+		statusMessage: "",
 	}
 }
 
 func (m *PlaylistsModel) Init() tea.Cmd {
-	// Define que estamos iniciando carregamento de playlists
 	m.loading = true
 	m.err = nil
 	m.playlists = nil
+	m.statusMessage = "" // limpa qualquer mensagem em aberto
 	m.parent.logger.Info("PlaylistsModel: Init chamado, buscando playlists…")
 
 	return func() tea.Msg {
-		m.parent.logger.Info("PlaylistsModel: Init chamado")
 		playlists, err := m.parent.playlistUseCase.GetMinePlaylists(m.parent.appContext)
 		if err != nil {
 			m.parent.logger.Error("Falha ao obter playlists", err)
 			return playlistLoadErrorMsg{err: err}
 		}
-		m.parent.logger.Info(fmt.Sprintf("Solicitação concluída: %d playlists.", len(playlists)))
+		m.parent.logger.Info(fmt.Sprintf("Solicitação concluída: %d playlists encontradas.", len(playlists)))
 		return playlistsLoadedMsg{playlists: playlists}
 	}
 }
@@ -48,6 +53,7 @@ func (m *PlaylistsModel) Init() tea.Cmd {
 func (m *PlaylistsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case playlistsLoadedMsg:
+		// Recebe lista carregada com sucesso
 		m.loading = false
 		m.playlists = msg.playlists
 		m.cursor = 0
@@ -56,6 +62,8 @@ func (m *PlaylistsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.err = nil
 		}
+
+		m.lastRefresh = time.Now()
 		return m, nil
 
 	case playlistLoadErrorMsg:
@@ -64,14 +72,35 @@ func (m *PlaylistsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Se há erro e o usuário apertar Enter, volta ao login
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			return m, tea.Quit
+		}
+
 		if m.err != nil && msg.Type == tea.KeyEnter {
 			return m, m.parent.send(showLoginMsg{})
 		}
-		// Enquanto estiver carregando ou não houver playlists, ignoramos setas/enter
+
+		if msg.Type == tea.KeyCtrlR {
+			if m.lastRefresh.IsZero() || time.Since(m.lastRefresh) >= 5*time.Minute {
+				m.parent.logger.Info("PlaylistsModel: Ctrl+R pressionado — recarregando playlists…")
+				return m, m.Init()
+			}
+
+			remaining := 5*time.Minute - time.Since(m.lastRefresh)
+			minutos := int(remaining.Minutes())
+			segundos := int(remaining.Seconds()) % 60
+			m.statusMessage = fmt.Sprintf(
+				"🔄 Aguarde %02d:%02d até a próxima recarga (cooldown de 5 minutos).",
+				minutos, segundos,
+			)
+			return m, nil
+		}
+
 		if m.loading || len(m.playlists) == 0 {
 			return m, nil
 		}
+
 		switch msg.Type {
 		case tea.KeyUp:
 			if m.cursor > 0 {
@@ -98,7 +127,9 @@ func (m *PlaylistsModel) View() string {
 	b.WriteString("\n\n")
 
 	if m.loading {
-		b.WriteString("Loading playlists...\n")
+		b.WriteString("Loading playlists…\n")
+		b.WriteString("\n")
+		b.WriteString(welcomePromptStyle.Render("Pressione Ctrl+R para tentar recarregar. Ctrl+C para sair."))
 		return docStyle.Render(b.String())
 	}
 
@@ -107,14 +138,14 @@ func (m *PlaylistsModel) View() string {
 		if m.err.Error() == "no playlists found" {
 			b.WriteString("\n\nIt seems you don't have any playlists.")
 		} else {
-			b.WriteString("\n\nPress Enter to voltar ao login.")
+			b.WriteString("\n\nPressione Enter para voltar ao login.")
 		}
 		b.WriteString("\n\n")
-		b.WriteString(welcomePromptStyle.Render("(Ctrl+C ou Esc para sair)"))
+		b.WriteString(welcomePromptStyle.Render("Pressione Ctrl+R para recarregar. Ctrl+C para sair."))
 		return docStyle.Render(b.String())
 	}
 
-	// Se chegou aqui, há playlists para exibir
+	// Exibe as playlists carregadas
 	for i, p := range m.playlists {
 		item := p.Title
 		if m.cursor == i {
@@ -125,7 +156,17 @@ func (m *PlaylistsModel) View() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(welcomePromptStyle.Render("Use ↑/↓ ou j/k para navegar, Enter para selecionar. Ctrl+C para sair."))
+
+	// Instruções de navegação e refresh
+	b.WriteString(welcomePromptStyle.Render("Use ↑/↓ para navegar, Enter para selecionar."))
+	b.WriteString("\n")
+	b.WriteString(welcomePromptStyle.Render("Pressione Ctrl+R para recarregar playlists (cooldown 5m). Ctrl+C para sair."))
+
+	// Se houver mensagem de status (cooldown), exiba abaixo
+	if m.statusMessage != "" {
+		b.WriteString("\n\n")
+		b.WriteString(statusMessageStyle.Render(m.statusMessage))
+	}
 
 	return docStyle.Render(b.String())
 }
