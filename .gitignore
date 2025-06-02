@@ -1,0 +1,43 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/reorder-tui
+*.test
+
+# Output of go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Credentials and tokens
+client_secret.json
+token.json
+
+# Logs
+*.log
+logs/
+*.json
+
+# IDE/editor directories
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build directories
+dist/
+build/
+
+# Binários no GOPATH
+/bin
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Go modules
+go.sum
+
+# Cachê de Go
+pkg/
