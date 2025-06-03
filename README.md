@@ -24,25 +24,16 @@ Um aplicativo de terminal interativo (TUI) para reordenar playlists do YouTube e
 * Go 1.20+ instalado na máquina
 * Conta Google com playlists existentes
 * Arquivo de credenciais OAuth2 (`client_secret.json`)
-* Conexão com Internet (para comunicar-se com a API do YouTube)
-
-## Como instalar
-
-```bash
-git clone https://github.com/SEU_USUARIO/TUI_playlist_reorder.git
-cd TUI_playlist_reorder
-go mod download
-go build -o reorder-tui ./cmd
-```
 
 ## Configuração
 
 ### Credenciais de OAuth2
 
-1. Crie um projeto no Google Cloud Console.
-2. Ative a API do YouTube Data.
-3. Na seção “Credenciais”, crie um OAuth 2.0 Client ID (tipo “Desktop”).
-4. Baixe o arquivo JSON com as credenciais (`client_secret.json`) e coloque-o na pasta auth.
+1. Crie um projeto no [Google Cloud Console](https://console.cloud.google.com/)
+2. Use uma key para aplicações desktop.
+3. Baixe o arquivo JSON com as credenciais (`client_secret.json`) e coloque-o na pasta auth.
+4. Mais informações sobre como criar credenciais estão disponíveis na [documentação do Google](https://developers.google.com/identity/protocols/oauth2/native-app?hl=pt-br#uwp).
+
 
 ### Configurar redirect URI
 
