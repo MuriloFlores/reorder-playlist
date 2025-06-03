@@ -11,24 +11,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type savePlaylistMsg struct {
+	criteria string
+	title    string
+}
+
 type ReorderModel struct {
 	parent          *AppModel
 	playlist        domain.Playlist
 	playlistUseCase usecases.PlaylistUseCase
 
-	// Opções de reordenação
 	reorderOptions []string
 	cursor         int
 
-	// Campos para entrada de título
-	awaitingTitle   bool   // true = usuário digitando o novo título
-	pendingCriteria string // critério selecionado ("name", "duration", etc.)
-	newTitle        string // texto digitado pelo usuário
+	awaitingTitle   bool
+	pendingCriteria string
+	newTitle        string
 
-	// Estado de “loading”
-	awaitingSave bool // true enquanto o “timer de 10s” estiver rodando
+	awaitingSave bool
 
-	// Mensagens de status/erro
 	statusMessage string
 	err           error
 }
@@ -65,7 +66,7 @@ func (m *ReorderModel) Init() tea.Cmd {
 
 func (m *ReorderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	// Se estivermos aguardando o “loading” de 10 segundos, ignoramos toda KeyMsg
+
 	case tea.KeyMsg:
 		if m.awaitingSave {
 			// Enquanto o timer estiver rodando, não aceitamos input
@@ -247,10 +248,4 @@ func (m *ReorderModel) View() string {
 	b.WriteString(welcomePromptStyle.Render("Use ↑/↓ para navegar, Enter para selecionar, Backspace para voltar. Ctrl+C para sair."))
 
 	return docStyle.Render(b.String())
-}
-
-// Mensagem interna para disparar o salvamento após o timer
-type savePlaylistMsg struct {
-	criteria string
-	title    string
 }

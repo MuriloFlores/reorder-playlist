@@ -12,10 +12,6 @@ import (
 type playlistsLoadedMsg struct{ playlists []domain.Playlist }
 type playlistLoadErrorMsg struct{ err error }
 
-type playlistViaURLMsg struct {
-	playlist domain.Playlist
-}
-
 type PlaylistsModel struct {
 	parent        *AppModel
 	playlists     []domain.Playlist
@@ -24,10 +20,6 @@ type PlaylistsModel struct {
 	loading       bool
 	lastRefresh   time.Time
 	statusMessage string
-
-	awaitingURL bool
-	newURL      string
-	urlError    error
 }
 
 func NewPlaylistsModel(parent *AppModel) *PlaylistsModel {
@@ -36,14 +28,10 @@ func NewPlaylistsModel(parent *AppModel) *PlaylistsModel {
 		loading:       true,
 		lastRefresh:   time.Time{},
 		statusMessage: "",
-		awaitingURL:   false,
-		newURL:        "",
-		urlError:      nil,
 	}
 }
 
 func (m *PlaylistsModel) Init() tea.Cmd {
-	// Dispara o fetch das playlists
 	m.loading = true
 	m.err = nil
 	m.playlists = nil
@@ -81,61 +69,18 @@ func (m *PlaylistsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Sempre permite Ctrl+C ou Esc para sair
+		// Ctrl+C ou Esc encerra
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		}
 
-		// Se já estivermos no modo de entrada de URL, tratamos teclas de texto
-		if m.awaitingURL {
-			switch msg.Type {
-			case tea.KeyEnter:
-				// O usuário finalizou a URL
-				m.awaitingURL = false
-				url := strings.TrimSpace(m.newURL)
-				if url == "" {
-					m.urlError = fmt.Errorf("URL não pode ficar vazia")
-					m.statusMessage = "URL não pode ficar vazia. Tente novamente."
-					m.newURL = ""
-					return m, nil
-				}
-
-				// Exibe carregando e dispara o fetch via URL
-				m.loading = true
-				m.err = nil
-				m.statusMessage = ""
-				m.urlError = nil
-
-				return m, func() tea.Msg {
-					playlist, err := m.parent.playlistUseCase.GetPlaylistByURL(m.parent.appContext, url)
-					if err != nil {
-						return playlistLoadErrorMsg{err: err}
-					}
-					// Se for bem‐sucedido, retornamos uma mensagem especial com a playlist carregada
-					return playlistViaURLMsg{playlist: playlist}
-				}
-
-			case tea.KeyBackspace:
-				if len(m.newURL) > 0 {
-					m.newURL = m.newURL[:len(m.newURL)-1]
-				}
-				return m, nil
-
-			default:
-				if msg.Type == tea.KeyRunes {
-					m.newURL += string(msg.Runes)
-				}
-				return m, nil
-			}
-		}
-
-		// Se houver erro geral e usuário apertar Enter, volta ao login
+		// Se houver erro e apertar Enter → volta ao login
 		if m.err != nil && msg.Type == tea.KeyEnter {
 			return m, m.parent.send(showLoginMsg{})
 		}
 
-		// Tratamento de Ctrl+R (refresh) com cooldown de 5 minutos
+		// Ctrl+R para recarregar (cooldown 5m)
 		if msg.Type == tea.KeyCtrlR {
 			if m.lastRefresh.IsZero() || time.Since(m.lastRefresh) >= 5*time.Minute {
 				m.parent.logger.Info("PlaylistsModel: Ctrl+R pressionado — recarregando playlists…")
@@ -145,77 +90,52 @@ func (m *PlaylistsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			minutos := int(remaining.Minutes())
 			segundos := int(remaining.Seconds()) % 60
 			m.statusMessage = fmt.Sprintf(
-				"🔄 Aguarde %02d:%02d até a próxima recarga (cooldown 5m).",
+				"🔄 Aguarde %02d:%02d para próximo refresh (cooldown 5m).",
 				minutos, segundos,
 			)
 			return m, nil
 		}
 
-		// Se estiver carregando ou não tiver playlists, ignoramos navegação
+		// Se estiver carregando ou não tiver playlists, nada faz
 		if m.loading || len(m.playlists) == 0 {
 			return m, nil
 		}
 
-		// Navegação normal: cursor move entre index 0 e len(playlists) (lembre: index 0 = “via URL”)
+		// Navegação normal: índice 0 = “via URL”, índices 1..N = playlists carregadas
 		switch msg.Type {
 		case tea.KeyUp:
 			if m.cursor > 0 {
 				m.cursor--
 			}
 		case tea.KeyDown:
-			// índice máximo é len(playlists) (porque index 0 = “via URL”, playlists começam no 1)
-			if m.cursor < len(m.playlists) {
+			if m.cursor < len(m.playlists) { // máximo = len(playlists)
 				m.cursor++
 			}
 		case tea.KeyEnter:
-			// Se cursor == 0, entramos no modo “digitar URL”
 			if m.cursor == 0 {
-				m.awaitingURL = true
-				m.newURL = ""
-				m.statusMessage = ""
-				m.urlError = nil
-				return m, nil
+				// selecionou “Reordenar via URL”
+				return m, m.parent.send(showURLMsg{})
 			}
-			// Caso contrário, playlist selecionada (offset -1)
+			// selecionou playlist existente
 			selected := m.playlists[m.cursor-1]
 			m.parent.logger.Info(fmt.Sprintf("Playlist selecionada: %s (ID: %s)", selected.Title, selected.ID))
 			return m, m.parent.send(showReorderMsg{playlist: selected})
 		}
 	}
-
 	return m, nil
 }
 
 func (m *PlaylistsModel) View() string {
 	var b strings.Builder
-
 	b.WriteString(listHeaderStyle.Render("Your Playlists"))
 	b.WriteString("\n\n")
 
-	// Se estivermos carregando playlists
 	if m.loading {
-		b.WriteString("Loading playlists…\n")
-		b.WriteString("\n")
-		// Mostra instrução de refresh
+		b.WriteString("Loading playlists…\n\n")
 		b.WriteString(welcomePromptStyle.Render("Pressione Ctrl+R para recarregar (cooldown 5m). Ctrl+C para sair."))
 		return docStyle.Render(b.String())
 	}
 
-	// Se estivermos aguardando o usuário digitar a URL
-	if m.awaitingURL {
-		b.WriteString("Digite a URL da playlist do YouTube e pressione Enter:\n")
-		inputLine := fmt.Sprintf("> %s", m.newURL)
-		b.WriteString(listItemStyle.Render(inputLine))
-		b.WriteString("\n\n")
-		if m.urlError != nil {
-			b.WriteString(errorMessageStyle.Render(fmt.Sprintf("Erro: %v", m.urlError)))
-			b.WriteString("\n\n")
-		}
-		b.WriteString(welcomePromptStyle.Render("Pressione Backspace para apagar, Enter para confirmar."))
-		return docStyle.Render(b.String())
-	}
-
-	// Se ocorreu erro no carregamento normal
 	if m.err != nil {
 		b.WriteString(errorMessageStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 		b.WriteString("\n\n")
@@ -225,6 +145,7 @@ func (m *PlaylistsModel) View() string {
 		return docStyle.Render(b.String())
 	}
 
+	// Opção 0 = “Reordenar playlist via URL”
 	if m.cursor == 0 {
 		b.WriteString(selectedListItemStyle.Render("Reordenar playlist via URL"))
 	} else {
@@ -232,6 +153,7 @@ func (m *PlaylistsModel) View() string {
 	}
 	b.WriteString("\n")
 
+	// Em seguida, as playlists do usuário
 	for i, p := range m.playlists {
 		if m.cursor == i+1 {
 			b.WriteString(selectedListItemStyle.Render(p.Title))
@@ -246,7 +168,6 @@ func (m *PlaylistsModel) View() string {
 	b.WriteString("\n")
 	b.WriteString(welcomePromptStyle.Render("Pressione Ctrl+R para recarregar (cooldown 5m). Ctrl+C para sair."))
 
-	// Se tiver mensagem de status (por exemplo, cooldown), exiba abaixo
 	if m.statusMessage != "" {
 		b.WriteString("\n\n")
 		b.WriteString(statusMessageStyle.Render(m.statusMessage))

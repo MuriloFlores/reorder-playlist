@@ -21,6 +21,7 @@ const (
 	viewLogin
 	viewPlaylists
 	viewReorder
+	viewURL
 )
 
 type AppModel struct {
@@ -31,11 +32,11 @@ type AppModel struct {
 	tokenService    token_manager.TokenService
 	logger          logger.Logger
 
-	// Submodelos (cada um implementa tea.Model)
 	welcomeModel   *WelcomeModel
 	loginModel     *LoginModel
 	playlistsModel *PlaylistsModel
 	reorderModel   *ReorderModel
+	urlModel       *URLModel
 
 	currentView currentView
 	err         error
@@ -72,6 +73,7 @@ func NewAppModel(
 	m.welcomeModel = NewWelcomeModel(m)
 	m.loginModel = NewLoginModel(m)
 	m.playlistsModel = NewPlaylistsModel(m)
+	m.urlModel = NewURLModel(m)
 	m.reorderModel = NewReorderModel(m, domain.Playlist{})
 
 	m.currentView = viewWelcome
@@ -98,8 +100,8 @@ type showWelcomeMsg struct{}
 type showLoginMsg struct{}
 type showPlaylistsMsg struct{}
 type showReorderMsg struct{ playlist domain.Playlist }
+type showURLMsg struct{}
 
-// Helper: envia uma mensagem que será processada no próximo ciclo de Update
 func (m *AppModel) send(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg { return msg }
 }
@@ -179,6 +181,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rm := NewReorderModel(m, msg.playlist)
 		m.reorderModel = rm
 		cmd = rm.Init()
+
+	case showURLMsg:
+		m.currentView = viewURL
+		m.err = nil
+		um := NewURLModel(m)
+		m.urlModel = um
+		cmd = um.Init()
 	}
 
 	cmds = append(cmds, cmd)
@@ -221,6 +230,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			currentViewCmd = cmd
 		}
+
+	case viewURL:
+		if m.urlModel != nil {
+			updated, cmd := m.urlModel.Update(msg)
+			if casted, ok := updated.(*URLModel); ok {
+				m.urlModel = casted
+			}
+			currentViewCmd = cmd
+		}
+
 	}
 
 	cmds = append(cmds, currentViewCmd)
@@ -241,6 +260,8 @@ func (m *AppModel) View() string {
 		return m.playlistsModel.View()
 	case viewReorder:
 		return m.reorderModel.View()
+	case viewURL:
+		return m.urlModel.View()
 	default:
 		return "Visão desconhecida…"
 	}
